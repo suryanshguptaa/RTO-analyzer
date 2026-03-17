@@ -5,27 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GenAI RTO & Returns Intelligence</title>
     
-    <!-- 1. Tailwind CSS -->
+    <!-- Dependencies -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- 2. React & ReactDOM (Production) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
-    
-    <!-- 3. Recharts (Stable version to prevent prop-type errors) -->
     <script src="https://unpkg.com/recharts@2.1.12/umd/Recharts.js"></script>
-    
-    <!-- 4. Babel (For JSX Parsing) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- 5. Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
-        .animate-in { animation: fadeIn 0.5s ease-out; }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
@@ -33,15 +25,16 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // ==========================================
+        // 🚨 ENVIRONMENT KEY INJECTION 🚨
+        // Keep this as an empty string.
+        const apiKey = ""; 
+        // ==========================================
+
         const { useState, useEffect, useRef } = React;
         const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = window.Recharts;
 
-        // ==========================================
-        // 🚨 YOUR API KEY (Hardcoded for GitHub)
-        // ==========================================
-        const DEFAULT_API_KEY = "AIzaSyALAGxz160cbT-01zqK90zj57XBLHpCIOc";
-
-        // Crash-proof Icon Renderer
+        // Icon Component
         const Icon = ({ name, className = "w-5 h-5" }) => {
             const kebabName = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
             const iconRef = useRef(null);
@@ -56,23 +49,16 @@
                     window.lucide.createIcons({ root: iconRef.current });
                 }
             }, [name, kebabName, className]);
-
             return <span ref={iconRef} className="inline-flex items-center justify-center"></span>;
         };
 
-        // --- MOCK DATA FOR CHARTS & TABLES ---
-        const TREND_DATA = [
-            { name: 'Week 1', rto: 12, returns: 8 }, { name: 'Week 2', rto: 19, returns: 11 },
-            { name: 'Week 3', rto: 15, returns: 9 }, { name: 'Week 4', rto: 22, returns: 14 }
-        ];
-
+        // Mock Data
+        const TREND_DATA = [{ name: 'W1', rto: 12 }, { name: 'W2', rto: 19 }, { name: 'W3', rto: 15 }, { name: 'W4', rto: 22 }];
         const COURIER_DATA = [
             { id: 1, name: "Delhivery", rto: "4.2%", cost: "₹45", rating: 4.8 },
             { id: 2, name: "BlueDart", rto: "2.1%", cost: "₹85", rating: 4.9 },
-            { id: 3, name: "Ecom Express", rto: "6.8%", cost: "₹38", rating: 4.1 },
-            { id: 4, name: "XpressBees", rto: "5.5%", cost: "₹42", rating: 4.3 }
+            { id: 3, name: "Ecom Express", rto: "6.8%", cost: "₹38", rating: 4.1 }
         ];
-
         const REASONS = [
             { name: 'Packaging Damaged', value: 45, color: '#6366f1' },
             { name: 'Quality Issues', value: 25, color: '#f59e0b' },
@@ -82,80 +68,94 @@
 
         const App = () => {
             const [activeTab, setActiveTab] = useState('overview');
-            const [userApiKey, setUserApiKey] = useState(DEFAULT_API_KEY);
+            const [userApiKey, setUserApiKey] = useState(""); 
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
             const [scanResult, setScanResult] = useState(null);
             const [rcaResult, setRcaResult] = useState(null);
-            const [showCouriers, setShowCouriers] = useState(false);
+            const [activeModelName, setActiveModelInfo] = useState("Standby");
 
-            // Robust JSON extraction (ignores markdown formatting)
             const extractJSON = (text) => {
                 try {
                     const firstBrace = text.indexOf('{');
                     const lastBrace = text.lastIndexOf('}');
-                    if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON found in response");
+                    if (firstBrace === -1 || lastBrace === -1) throw new Error("Invalid format received from AI.");
                     return JSON.parse(text.substring(firstBrace, lastBrace + 1));
                 } catch (e) {
-                    throw new Error("Failed to parse AI response into JSON. Check API format.");
+                    throw new Error("Failed to parse AI data. The AI did not return a valid JSON object.");
                 }
             };
 
             // ==========================================
-            // 🤖 DUAL-ENGINE API ARCHITECTURE
-            // Resolves conflicts between GitHub and Preview Tabs
+            // 🤖 AUTO-DISCOVERY AI ENGINE
+            // Guaranteed to never throw "Model Not Found"
             // ==========================================
             const callGeminiReal = async (promptText, imageBase64 = null, mimeType = "image/jpeg") => {
                 setLoading(true);
                 setError(null);
+                setActiveModelInfo("Discovering available models...");
 
-                const activeKey = userApiKey.trim();
-                const parts = [{ text: promptText }];
-                if (imageBase64) {
-                    parts.push({ inlineData: { mimeType: mimeType, data: imageBase64 } });
+                const finalKey = apiKey || userApiKey.trim();
+                if (!finalKey) {
+                    setError("Missing API Key. Please paste your NEW API key in the sidebar.");
+                    setLoading(false);
+                    return null;
                 }
-                const payload = { contents: [{ parts }] };
 
                 try {
-                    // TRY 1: PRODUCTION MODE (For when you upload to GitHub)
-                    if (activeKey) {
-                        const prodUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`;
-                        const prodRes = await fetch(prodUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
+                    let activeModel = "";
+
+                    // STEP 1: Ask Google what models THIS specific key is allowed to use
+                    if (apiKey) {
+                        activeModel = "gemini-2.5-flash-preview-09-2025";
+                    } else {
+                        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${finalKey}`);
+                        const listData = await listRes.json();
                         
-                        const prodData = await prodRes.json();
+                        if (!listRes.ok) throw new Error(listData.error?.message || "Failed to validate API Key.");
                         
-                        if (prodRes.ok) {
-                            setLoading(false);
-                            return extractJSON(prodData.candidates[0].content.parts[0].text);
-                        }
-                        console.warn("Production mode failed (Normal if in Preview tab):", prodData.error?.message);
+                        // Extract only valid generation models
+                        const validModels = (listData.models || [])
+                            .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+                            .map(m => m.name.replace('models/', ''));
+                            
+                        if (validModels.length === 0) throw new Error("Your API Key has no generative models enabled.");
+
+                        // Prefer the newest models, but ONLY if they are in your valid list
+                        const preferred = imageBase64 
+                            ? ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro-vision'] 
+                            : ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+                            
+                        activeModel = preferred.find(m => validModels.includes(m)) || validModels[0];
                     }
 
-                    // TRY 2: CANVAS PREVIEW MODE (For testing right here on this website)
-                    const previewUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=`; // Empty key is required here
-                    const previewRes = await fetch(previewUrl, {
+                    setActiveModelInfo(`Using: ${activeModel}`);
+
+                    // STEP 2: Use the strictly validated model for the request
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${finalKey}`;
+                    
+                    const parts = [{ text: promptText }];
+                    if (imageBase64) parts.push({ inlineData: { mimeType: mimeType, data: imageBase64 } });
+
+                    const response = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify({ contents: [{ parts }] })
                     });
                     
-                    const previewData = await previewRes.json();
+                    const data = await response.json();
                     
-                    if (previewRes.ok) {
-                        setLoading(false);
-                        return extractJSON(previewData.candidates[0].content.parts[0].text);
+                    if (!response.ok) {
+                        throw new Error(data.error?.message || "Google API rejected the request.");
                     }
 
-                    // If both fail, throw the error
-                    throw new Error(previewData.error?.message || "API Connection failed.");
+                    setLoading(false);
+                    return extractJSON(data.candidates[0].content.parts[0].text);
 
                 } catch (err) {
                     setLoading(false);
-                    setError(`API Error: ${err.message}`);
+                    setActiveModelInfo("Failed");
+                    setError(`${err.message}`);
                     return null;
                 }
             };
@@ -163,19 +163,11 @@
             const handleImageAnalysis = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                
                 const reader = new FileReader();
                 reader.onloadend = async () => {
                     const base64 = reader.result.split(',')[1];
-                    const prompt = `Analyze this product image. You MUST return ONLY a valid JSON object with EXACTLY these keys:
-                    {
-                        "item": "Name of the product",
-                        "rto_rate": "Estimated RTO % (e.g., 18%)",
-                        "return_rate": "Estimated Return % (e.g., 12%)",
-                        "risks": ["Risk 1", "Risk 2", "Risk 3"],
-                        "packaging_advice": "One actionable advice for packaging"
-                    }`;
-                    
+                    const prompt = `Analyze this product image. Return ONLY a valid JSON object. Do not include markdown code block syntax. Use EXACTLY these keys:
+                    {"item": "Product name", "rto_rate": "18%", "return_rate": "12%", "risks": ["Risk 1", "Risk 2", "Risk 3"], "packaging_advice": "Advice"}`;
                     const result = await callGeminiReal(prompt, base64, file.type);
                     if (result) setScanResult(result);
                 };
@@ -183,97 +175,71 @@
             };
 
             const handleDiagnostic = async () => {
-                const prompt = `Act as a logistics expert. Data shows 45% returns due to "Packaging Damaged". 
-                Return ONLY a valid JSON object with EXACTLY these keys:
-                {
-                    "root_cause": "A 2-sentence explanation of why packaging fails.",
-                    "actions": ["Step 1", "Step 2", "Step 3"]
-                }`;
-                
+                const prompt = `Logistics data: 45% returns due to Packaging Damaged. Return ONLY a valid JSON object. Do not include markdown code block syntax. Use EXACTLY these keys:
+                {"root_cause": "Explanation", "actions": ["Step 1", "Step 2", "Step 3"]}`;
                 const result = await callGeminiReal(prompt);
                 if (result) setRcaResult(result);
             };
 
             return (
                 <div className="flex flex-col md:flex-row min-h-screen">
-                    {/* SIDEBAR */}
                     <aside className="w-full md:w-72 bg-white border-r border-slate-200 flex flex-col z-10 p-8 shadow-sm">
                         <div className="flex items-center gap-4 mb-12">
                             <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-100">
                                 <Icon name="ShieldCheck" className="text-white w-7 h-7" />
                             </div>
-                            <span className="font-black text-2xl hidden md:block tracking-tighter">GEN-RTO</span>
+                            <span className="font-black text-2xl tracking-tighter">GEN-RTO</span>
                         </div>
 
                         <nav className="flex-1 space-y-3">
                             {[
                                 { id: 'overview', icon: 'LayoutDashboard', label: 'Analytics Hub' },
                                 { id: 'scan', icon: 'Camera', label: 'AI Product Scan' },
-                                { id: 'logistics', icon: 'Truck', label: 'Courier Routing' },
                                 { id: 'fixes', icon: 'Zap', label: 'Smart Fixes' },
                             ].map((item) => (
-                                <button
-                                    key={item.id}
-                                    onClick={() => setActiveTab(item.id)}
+                                <button key={item.id} onClick={() => setActiveTab(item.id)}
                                     className={`w-full flex items-center gap-4 px-5 py-4 rounded-[1.5rem] transition-all duration-300 font-bold ${
-                                        activeTab === item.id ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 translate-x-1' : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
-                                >
-                                    <Icon name={item.icon} className="w-5 h-5" />
-                                    <span>{item.label}</span>
+                                        activeTab === item.id ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'
+                                    }`}>
+                                    <Icon name={item.icon} className="w-5 h-5" /> <span>{item.label}</span>
                                 </button>
                             ))}
                         </nav>
 
                         <div className="mt-8 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                <Icon name="Key" className="w-3 h-3" /> API Key Status
+                                <Icon name="Key" className="w-3 h-3" /> Paste NEW API Key Here
                             </p>
                             <input 
                                 type="password" 
                                 className="w-full text-xs p-2 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                                value={userApiKey}
-                                onChange={(e) => setUserApiKey(e.target.value)}
+                                value={apiKey ? "Injected by Preview" : userApiKey}
+                                onChange={(e) => !apiKey && setUserApiKey(e.target.value)}
+                                disabled={!!apiKey}
                             />
-                            {userApiKey && <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Connected</p>}
+                            <p className="text-[10px] text-slate-500 font-bold mt-3 border-t border-slate-200 pt-2 flex justify-between items-center">
+                                AI Status: <span className="text-indigo-600 truncate ml-2" title={activeModelName}>{activeModelName}</span>
+                            </p>
                         </div>
                     </aside>
 
-                    {/* MAIN CONTENT */}
                     <main className="flex-1 p-6 md:p-12 overflow-y-auto max-w-7xl mx-auto w-full">
-                        
-                        {/* Error Banner */}
                         {error && (
                             <div className="mb-8 p-5 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-4 text-red-700 animate-in">
                                 <div className="bg-red-100 p-2 rounded-xl"><Icon name="AlertCircle" className="w-6 h-6" /></div>
-                                <div>
-                                    <h4 className="font-black text-sm uppercase tracking-widest">Connection Notice</h4>
-                                    <p className="font-bold text-sm mt-1">{error}</p>
-                                </div>
+                                <div><h4 className="font-black text-sm uppercase tracking-widest">Error</h4><p className="font-bold text-sm mt-1">{error}</p></div>
                             </div>
                         )}
 
-                        <header className="mb-12 flex flex-col md:flex-row justify-between md:items-center gap-6">
-                            <div>
-                                <h1 className="text-4xl font-black tracking-tight text-slate-900 underline decoration-indigo-200 decoration-8 underline-offset-4">Command Center</h1>
-                                <p className="text-slate-500 mt-2 font-medium">Predicting e-commerce logistics failure through AI.</p>
-                            </div>
-                            <button className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 flex items-center gap-2">
-                                <Icon name={loading ? "Loader2" : "Zap"} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> 
-                                {loading ? 'Processing...' : 'System Live'}
-                            </button>
+                        <header className="mb-12">
+                            <h1 className="text-4xl font-black tracking-tight text-slate-900 underline decoration-indigo-200 decoration-8 underline-offset-4">Command Center</h1>
+                            <p className="text-slate-500 mt-2 font-medium">Predicting e-commerce logistics failure through AI.</p>
                         </header>
 
-                        {/* OVERVIEW TAB */}
                         {activeTab === 'overview' && (
                             <div className="space-y-10 animate-in">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                                    {[
-                                        { label: 'Avg RTO Rate', val: '14.2%', sub: '↓ 2.1%', color: 'text-red-500', icon: 'Package' },
-                                        { label: 'Return Rate', val: '8.5%', sub: '↑ 0.4%', color: 'text-orange-500', icon: 'TrendingDown' },
-                                        { label: 'Revenue Saved', val: '₹42,300', sub: 'Last 30 Days', color: 'text-indigo-600', icon: 'Star' },
-                                        { label: 'SLA Score', val: '98/100', sub: 'Excellent', color: 'text-green-500', icon: 'CheckCircle2' },
-                                    ].map((kpi, i) => (
+                                    {[{ label: 'Avg RTO Rate', val: '14.2%', color: 'text-red-500', icon: 'Package' }, { label: 'Return Rate', val: '8.5%', color: 'text-orange-500', icon: 'TrendingDown' }, { label: 'Revenue Saved', val: '₹42,300', color: 'text-indigo-600', icon: 'Star' }, { label: 'SLA Score', val: '98/100', color: 'text-green-500', icon: 'CheckCircle2' }].map((kpi, i) => (
                                         <div key={i} className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
                                             <div className="flex justify-between items-start mb-4">
                                                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{kpi.label}</p>
@@ -283,179 +249,71 @@
                                         </div>
                                     ))}
                                 </div>
-
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
                                     <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm h-[400px]">
-                                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Icon name="TrendingDown" className="text-indigo-600" /> RTO Trends</h3>
+                                        <h3 className="font-bold text-lg mb-6">RTO Trends</h3>
                                         <ResponsiveContainer width="100%" height="85%">
                                             <AreaChart data={TREND_DATA}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                                <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                                                <YAxis axisLine={false} tickLine={false} />
                                                 <Tooltip />
-                                                <Area type="monotone" dataKey="rto" stroke="#6366f1" strokeWidth={4} fill="#6366f1" fillOpacity={0.1} />
+                                                <Area type="monotone" dataKey="rto" stroke="#6366f1" fill="#6366f1" fillOpacity={0.1} />
                                             </AreaChart>
                                         </ResponsiveContainer>
                                     </div>
-
                                     <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
                                         <h3 className="font-bold text-lg mb-6">Failure Reasons</h3>
                                         <ResponsiveContainer width="100%" height={220}>
-                                            <PieChart>
-                                                <Pie data={REASONS} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                                    {REASONS.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                                                </Pie>
-                                                <Tooltip />
-                                            </PieChart>
+                                            <PieChart><Pie data={REASONS} innerRadius={60} outerRadius={80} dataKey="value">{REASONS.map((e, i) => <Cell key={i} fill={e.color} />)}</Pie><Tooltip /></PieChart>
                                         </ResponsiveContainer>
-                                        <div className="mt-6 space-y-3">
-                                            {REASONS.map((r, i) => (
-                                                <div key={i} className="flex justify-between text-sm font-bold text-slate-600">
-                                                    <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: r.color}} /> {r.name}</div>
-                                                    <span className="text-slate-900 font-black">{r.value}%</span>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <div className="mt-6 space-y-3">{REASONS.map((r, i) => <div key={i} className="flex justify-between text-sm font-bold text-slate-600"><div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: r.color}} /> {r.name}</div><span className="text-slate-900">{r.value}%</span></div>)}</div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* SCANNER TAB */}
                         {activeTab === 'scan' && (
                             <div className="max-w-4xl mx-auto space-y-10 animate-in">
-                                <div className="bg-white p-16 rounded-[3rem] border-2 border-dashed border-slate-200 text-center relative overflow-hidden group hover:border-indigo-300 transition-colors">
-                                    <div className="w-24 h-24 bg-indigo-50 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 transition-transform group-hover:scale-110">
-                                        <Icon name="Camera" className="w-10 h-10 text-indigo-600" />
-                                    </div>
-                                    <h2 className="text-3xl font-black text-slate-900">Visual Product Analysis</h2>
-                                    <p className="text-slate-500 mt-3 mb-10 font-medium">Upload a photo to predict RTO benchmarks and detect structural risks.</p>
-                                    
+                                <div className="bg-white p-16 rounded-[3rem] border-2 border-dashed border-slate-200 text-center">
+                                    <h2 className="text-3xl font-black text-slate-900 mb-6">Visual Product Analysis</h2>
                                     <input type="file" id="scan-upload" className="hidden" accept="image/*" onChange={handleImageAnalysis} />
-                                    <label htmlFor="scan-upload" className={`inline-flex items-center gap-4 px-10 py-5 rounded-[1.5rem] font-black transition-all ${loading ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white cursor-pointer shadow-xl hover:bg-indigo-700 active:scale-95'}`}>
-                                        <Icon name={loading ? "Loader2" : "Upload"} className={loading ? "animate-spin" : ""} />
-                                        {loading ? "AI is Analyzing..." : "Upload Product Image"}
+                                    <label htmlFor="scan-upload" className={`inline-flex items-center gap-4 px-10 py-5 rounded-[1.5rem] font-black transition-all ${loading ? 'bg-slate-300 text-slate-500' : 'bg-indigo-600 text-white cursor-pointer shadow-xl hover:bg-indigo-700'}`}>
+                                        <Icon name={loading ? "Loader2" : "Upload"} className={loading ? "animate-spin" : ""} /> {loading ? "Analyzing..." : "Upload Image"}
                                     </label>
                                 </div>
-
                                 {scanResult && !loading && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10 animate-in">
-                                        <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col justify-between">
-                                            <div>
-                                                <p className="text-xs font-black text-indigo-500 uppercase tracking-[0.2em] mb-2">AI Detection</p>
-                                                <h3 className="text-3xl font-black text-slate-900 capitalize">{scanResult.item}</h3>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-6 mt-10">
-                                                <div className="bg-red-50 p-6 rounded-[2rem] border border-red-100 text-center">
-                                                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1">Global RTO</p>
-                                                    <p className="text-3xl font-black text-red-600">{scanResult.rto_rate}</p>
-                                                </div>
-                                                <div className="bg-orange-50 p-6 rounded-[2rem] border border-orange-100 text-center">
-                                                    <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">Return Risk</p>
-                                                    <p className="text-3xl font-black text-orange-600">{scanResult.return_rate}</p>
-                                                </div>
-                                            </div>
+                                        <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100">
+                                            <h3 className="text-3xl font-black capitalize mb-6">{scanResult.item}</h3>
+                                            <div className="flex gap-6"><div className="flex-1 bg-red-50 p-6 rounded-3xl"><p className="text-xs font-bold text-red-400">RTO Risk</p><p className="text-3xl font-black text-red-600">{scanResult.rto_rate}</p></div></div>
                                         </div>
-
-                                        <div className="bg-slate-900 text-white p-10 rounded-[2.5rem] shadow-xl">
-                                            <h4 className="font-black text-xl mb-6 flex items-center gap-3"><Icon name="AlertTriangle" className="text-orange-400" /> Logistics Risks</h4>
-                                            <div className="space-y-4 mb-10">
-                                                {scanResult.risks.map((risk, i) => (
-                                                    <div key={i} className="flex items-start gap-4">
-                                                        <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center shrink-0 mt-1 text-[10px] font-black">{i+1}</div>
-                                                        <p className="text-slate-300 text-sm font-bold leading-relaxed">{risk}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="p-5 bg-white/5 rounded-2xl border border-white/10 text-xs italic text-indigo-200">
-                                                💡 <strong>Packaging Tip:</strong> {scanResult.packaging_advice}
-                                            </div>
+                                        <div className="bg-slate-900 text-white p-10 rounded-[2.5rem]">
+                                            <h4 className="font-black text-xl mb-4">Risks</h4>
+                                            <ul className="space-y-2 mb-6 text-sm">{scanResult.risks.map((r, i) => <li key={i}>• {r}</li>)}</ul>
+                                            <p className="text-xs text-indigo-300 italic">Fix: {scanResult.packaging_advice}</p>
                                         </div>
                                     </div>
                                 )}
                             </div>
                         )}
 
-                        {/* LOGISTICS TAB */}
-                        {activeTab === 'logistics' && (
-                            <div className="max-w-4xl mx-auto bg-white rounded-[2.5rem] border border-slate-100 p-10 shadow-sm animate-in">
-                                <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-3"><Icon name="Truck" className="text-indigo-600" /> Courier Optimizer</h3>
-                                <div className="flex flex-col md:flex-row gap-4 mb-10">
-                                    <div className="flex-1 relative">
-                                        <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="Search" /></div>
-                                        <input type="text" placeholder="Enter Delivery Pincode" className="w-full pl-14 pr-6 py-5 bg-slate-50 rounded-[1.5rem] border border-slate-200 font-bold outline-none focus:ring-2 focus:ring-indigo-500" />
-                                    </div>
-                                    <button onClick={() => setShowCouriers(true)} className="px-10 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-xl hover:bg-indigo-700 active:scale-95 transition-transform">
-                                        Locate Partner
-                                    </button>
-                                </div>
-
-                                {showCouriers && (
-                                    <div className="space-y-4 animate-in">
-                                        {COURIER_DATA.map((c, i) => (
-                                            <div key={i} className="flex items-center justify-between p-6 border border-slate-100 rounded-[2rem] hover:bg-slate-50 transition-colors">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center font-black text-slate-400">{c.name[0]}</div>
-                                                    <div>
-                                                        <span className="font-extrabold text-slate-800 text-lg block">{c.name}</span>
-                                                        <span className="text-xs font-bold text-slate-400">{c.cost} • {c.speed}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-8 items-center text-right">
-                                                    <div>
-                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Zone Success</p>
-                                                        <span className="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-black">{100 - parseFloat(c.rto)}%</span>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Rating</p>
-                                                        <span className="font-black text-slate-800 flex items-center gap-1"><Icon name="Star" className="w-4 h-4 fill-yellow-400 text-yellow-400" /> {c.rating}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* FIXES TAB */}
                         {activeTab === 'fixes' && (
                             <div className="max-w-4xl mx-auto space-y-10 animate-in">
-                                <div className="bg-indigo-600 p-12 rounded-[3.5rem] text-white relative overflow-hidden shadow-2xl">
-                                    <div className="relative z-10">
-                                        <h2 className="text-4xl font-black mb-4 italic">Actionable Intelligence</h2>
-                                        <p className="text-indigo-100 max-w-lg mb-10 font-medium text-lg">Automatically diagnose return logs to determine if the issue is packaging, quality, or handling.</p>
-                                        <button onClick={handleDiagnostic} disabled={loading}
-                                            className={`flex items-center gap-4 px-10 py-5 rounded-[1.5rem] font-black transition-all shadow-xl active:scale-95 ${loading ? 'bg-indigo-800 text-indigo-400 cursor-not-allowed' : 'bg-white text-indigo-600 hover:bg-indigo-50'}`}>
-                                            <Icon name={loading ? "Loader2" : "Zap"} className={loading ? "animate-spin" : "fill-indigo-600"} />
-                                            {loading ? "Running AI Diagnostic..." : "Run Root Cause Analysis"}
-                                        </button>
-                                    </div>
-                                    <Icon name="Box" className="absolute -right-10 -bottom-10 w-64 h-64 text-indigo-500 opacity-20 rotate-12" />
+                                <div className="bg-indigo-600 p-12 rounded-[3.5rem] text-white">
+                                    <h2 className="text-4xl font-black mb-6 italic">Actionable Intelligence</h2>
+                                    <button onClick={handleDiagnostic} disabled={loading} className={`flex items-center gap-4 px-10 py-5 rounded-[1.5rem] font-black transition-all ${loading ? 'bg-indigo-800 text-indigo-400' : 'bg-white text-indigo-600 shadow-xl'}`}>
+                                        <Icon name={loading ? "Loader2" : "Zap"} className={loading ? "animate-spin" : ""} /> {loading ? "Running..." : "Run Root Cause Analysis"}
+                                    </button>
                                 </div>
-
                                 {rcaResult && !loading && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10 animate-in">
-                                        <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col justify-between">
-                                            <div>
-                                                <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-4">Detected Root Cause</h4>
-                                                <p className="text-xl font-bold text-slate-800 leading-relaxed italic">"{rcaResult.root_cause}"</p>
-                                            </div>
-                                            <div className="mt-10 p-6 bg-green-50 rounded-3xl border border-green-100 flex items-center gap-4">
-                                                <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center"><Icon name="CheckCircle2" className="text-green-600 w-6 h-6" /></div>
-                                                <div>
-                                                    <p className="text-[10px] font-black text-green-500 uppercase tracking-widest mb-1">Potential Savings</p>
-                                                    <p className="text-2xl font-black text-green-700">₹24,500 <span className="text-sm font-bold text-green-600">/ month</span></p>
-                                                </div>
-                                            </div>
-                                        </div>
-
+                                    <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm animate-in">
+                                        <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Detected Root Cause</h4>
+                                        <p className="text-xl font-bold text-slate-800 mb-10 italic">"{rcaResult.root_cause}"</p>
                                         <div className="space-y-4">
-                                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest px-4 mb-4">AI Action Plan</h4>
                                             {rcaResult.actions.map((act, i) => (
-                                                <div key={i} className="flex items-center gap-5 p-6 bg-white border border-slate-100 rounded-[2rem] hover:border-indigo-200 transition-colors shadow-sm group">
-                                                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-sm group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0">{i+1}</div>
-                                                    <p className="text-sm font-bold text-slate-700 leading-relaxed">{act}</p>
+                                                <div key={i} className="flex items-center gap-5 p-6 bg-slate-50 rounded-[2rem] font-bold text-slate-700">
+                                                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center">{i+1}</div> {act}
                                                 </div>
                                             ))}
                                         </div>
