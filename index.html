@@ -96,8 +96,17 @@
                 setActiveModelInfo("Discovering available models...");
 
                 const finalKey = apiKey || userApiKey.trim();
+                
+                // --- ADDED VALIDATION TO PREVENT ACCIDENTAL CODE PASTES ---
                 if (!finalKey) {
                     setError("Missing API Key. Please paste your NEW API key in the sidebar.");
+                    setLoading(false);
+                    return null;
+                }
+                
+                if (!finalKey.startsWith("AIza") || finalKey.length > 100) {
+                    setError("Invalid API Key format. It looks like you accidentally pasted code or text instead of the key. Google API keys start with 'AIza'.");
+                    setActiveModelInfo("Failed");
                     setLoading(false);
                     return null;
                 }
@@ -188,7 +197,7 @@
                             <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-100">
                                 <Icon name="ShieldCheck" className="text-white w-7 h-7" />
                             </div>
-                            <span className="font-black text-2xl tracking-tighter">GEN-RTO</span>
+                            <span className="font-black text-2xl hidden md:block tracking-tighter">GEN-RTO</span>
                         </div>
 
                         <nav className="flex-1 space-y-3">
