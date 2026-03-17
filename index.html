@@ -40,8 +40,8 @@
         } = window.Recharts;
 
         // --- REAL API CONFIGURATION ---
-        const GOOGLE_API_KEY = "AIzaSyDIQdtTSEQyvGrtuNhrYBhUlMOL8cJr_n8";
-        const MODEL_ID = "gemini-2.5-flash-preview-09-2025";
+        // Setting to empty string allows the execution environment to automatically inject the correct valid key
+        const GOOGLE_API_KEY = ""; 
 
         // CRASH-PROOF ICON RENDERER
         const Icon = ({ name, className = "w-5 h-5" }) => {
@@ -105,50 +105,78 @@
             const [pincode, setPincode] = useState('');
             const [showCouriers, setShowCouriers] = useState(false);
 
-            // Cleans JSON if Gemini returns markdown block
+            // Aggressively cleans JSON by finding the first { and last }
             const cleanJsonText = (text) => {
                 let cleaned = text.trim();
-                if (cleaned.startsWith("```json")) cleaned = cleaned.substring(7);
-                else if (cleaned.startsWith("```")) cleaned = cleaned.substring(3);
-                if (cleaned.endsWith("```")) cleaned = cleaned.substring(0, cleaned.length - 3);
+                const firstBrace = cleaned.indexOf('{');
+                const lastBrace = cleaned.lastIndexOf('}');
+                if (firstBrace !== -1 && lastBrace !== -1) {
+                    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+                }
                 return cleaned.trim();
             };
 
-            // REAL API CALL ENGINE
+            // REAL API CALL ENGINE WITH RETRY LOGIC
             const callGeminiReal = async (promptText, imageBase64 = null, mimeType = "image/jpeg") => {
                 setLoading(true);
                 setError(null);
-                
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent?key=${GOOGLE_API_KEY}`;
-                
-                const parts = [{ text: promptText }];
-                if (imageBase64) {
-                    parts.push({ inlineData: { mimeType: mimeType, data: imageBase64 } });
-                }
 
                 try {
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ parts }],
-                            generationConfig: { responseMimeType: "application/json" }
-                        })
-                    });
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GOOGLE_API_KEY}`;
                     
-                    const data = await response.json();
-                    
-                    if (!response.ok) {
-                        throw new Error(data.error?.message || "Unknown API Error");
+                    const parts = [{ text: promptText }];
+                    if (imageBase64) {
+                        parts.push({ inlineData: { mimeType: mimeType, data: imageBase64 } });
                     }
 
+                    const payload = {
+                        contents: [{ parts }],
+                        generationConfig: {} 
+                    };
+
+                    // Implement Exponential Backoff for Reliability
+                    let data = null;
+                    let retries = 5;
+                    let delay = 1000;
+                    let success = false;
+
+                    for (let i = 0; i < retries; i++) {
+                        try {
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+
+                            if (response.ok) {
+                                data = await response.json();
+                                success = true;
+                                break;
+                            }
+                            
+                            // Don't retry client errors (except 429 rate limit)
+                            if (response.status !== 429 && response.status < 500) {
+                                const errData = await response.json();
+                                throw new Error(errData.error?.message || "Client API Error");
+                            }
+                        } catch (e) {
+                            if (i === retries - 1) throw e;
+                        }
+                        await new Promise(res => setTimeout(res, delay * Math.pow(2, i)));
+                    }
+
+                    if (!success || !data) {
+                        throw new Error("Failed to connect to the Intelligence Engine after multiple attempts. Please try again.");
+                    }
+
+                    // Parse Response
                     const rawText = data.candidates[0].content.parts[0].text;
                     const jsonObject = JSON.parse(cleanJsonText(rawText));
                     return jsonObject;
 
                 } catch (err) {
                     console.error("API Error:", err);
-                    setError("API Call Failed: " + err.message);
+                    setError("API Call Failed: " + err.message + ". Please verify if the API key is active and has correct permissions.");
                     return null;
                 } finally {
                     setLoading(false);
@@ -164,7 +192,7 @@
                 
                 reader.onloadend = async () => {
                     const base64 = reader.result.split(',')[1];
-                    const prompt = `Analyze this product image. You must return ONLY a valid JSON object with EXACTLY these keys:
+                    const prompt = `Analyze this product image. You MUST return ONLY a valid JSON object with EXACTLY these keys (no markdown, no backticks, just the JSON):
                     {
                         "item": "Name of the product",
                         "rto_rate": "Estimated Global RTO % (e.g., 18%)",
@@ -181,7 +209,7 @@
 
             const handleDiagnostic = async () => {
                 const prompt = `Act as an e-commerce logistics expert. Current data shows 45% of returns are due to "Packaging Damaged". 
-                Perform a Root Cause Analysis. Return ONLY a valid JSON object with EXACTLY these keys:
+                Perform a Root Cause Analysis. You MUST return ONLY a valid JSON object with EXACTLY these keys (no markdown, no backticks, just the JSON):
                 {
                     "root_cause": "A detailed 2-sentence explanation of why the packaging is failing.",
                     "actions": ["Actionable step 1", "Actionable step 2", "Actionable step 3"]
